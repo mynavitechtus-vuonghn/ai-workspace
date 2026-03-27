@@ -1,3 +1,80 @@
+# AI Dev Workspace
+
+Starter implementation for your Next.js full-stack productivity platform.
+
+## What is included
+
+- Next.js App Router setup with dashboard/auth route groups
+- Prisma schema for `User`, `Task`, `Workflow`
+- AI chat API route (`app/api/chat/route.ts`) using Vercel AI SDK + Anthropic
+- AI tool-calling starter (`lib/ai/tools.ts`)
+- Redis + BullMQ queue starter (`lib/redis.ts`, `lib/ai/sub-agents.ts`)
+- Task server actions (`actions/task.ts`)
+
+## Quick start
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Setup environment:
+
+```bash
+cp .env.example .env.local
+```
+
+3. Generate Prisma client:
+
+```bash
+npx prisma generate
+```
+
+4. Run database migration (after PostgreSQL is ready):
+
+```bash
+npx prisma migrate dev --name init
+```
+
+5. Start development server:
+
+```bash
+npm run dev
+```
+
+## Next recommended steps
+
+1. Implement NextAuth config + session guards for dashboard pages.
+2. Build Kanban board UI in `app/(dashboard)/tasks/page.tsx`.
+3. Create chat client component with `useChat` for `app/(dashboard)/ai-chat/page.tsx`.
+4. Add BullMQ workers in `workers/` for workflow jobs.
+
+## Docker Compose
+
+1. Build images:
+
+```bash
+docker compose build
+```
+
+2. Start all services:
+
+```bash
+docker compose up -d
+```
+
+3. View logs:
+
+```bash
+docker compose logs -f app
+```
+
+4. Stop services:
+
+```bash
+docker compose down
+```
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
 ## Getting Started
