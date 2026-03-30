@@ -9,6 +9,11 @@ export type PublicEnvStatus = {
   aiModelId: string | null;
   githubToken: boolean;
   slackWebhookUrl: boolean;
+  /** Slack QA — PR chưa review */
+  slackQaWebhookUrl: boolean;
+  githubWatchRepos: boolean;
+  cronSecret: boolean;
+  backlogSpace: boolean;
 };
 
 export function getPublicEnvStatus(): PublicEnvStatus {
@@ -24,5 +29,9 @@ export function getPublicEnvStatus(): PublicEnvStatus {
     aiModelId: process.env.AI_MODEL_ID?.trim() || null,
     githubToken: Boolean(process.env.GITHUB_TOKEN?.trim()),
     slackWebhookUrl: Boolean(process.env.SLACK_WEBHOOK_URL?.trim()),
+    slackQaWebhookUrl: Boolean(process.env.SLACK_QA_WEBHOOK_URL?.trim()),
+    githubWatchRepos: Boolean(process.env.GITHUB_WATCH_REPOS?.trim()),
+    cronSecret: Boolean(process.env.CRON_SECRET?.trim()),
+    backlogSpace: Boolean(process.env.BACKLOG_SPACE?.trim()),
   };
 }

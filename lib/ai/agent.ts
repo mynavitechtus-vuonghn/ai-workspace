@@ -1,5 +1,4 @@
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
-import type { UserSettings } from "@prisma/client";
 import { stepCountIs, streamText, tool } from "ai";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
@@ -7,6 +6,7 @@ import { z } from "zod";
 import { DEFAULT_GEMINI_MODEL } from "@/lib/ai/gemini-defaults";
 import { db } from "@/lib/db";
 import { fetchGitHubLogin, fetchOpenPullRequestsInvolvingUser } from "@/lib/integrations/github-prs";
+import { runUnreviewedPrSlackQaNotification } from "@/lib/integrations/pr-notify-runner";
 import { postSlackIncomingWebhook } from "@/lib/integrations/slack-webhook";
 
 type ChatAgentInput = {
@@ -14,18 +14,16 @@ type ChatAgentInput = {
   messages: ModelMessage[];
 };
 
-function resolveGoogleAiApiKey(userOverride: string | null | undefined) {
-  const fromUser = userOverride?.trim();
-  const fromEnv = process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim();
-  return fromUser || fromEnv || null;
+function googleAiKeyFromEnv() {
+  return process.env.GOOGLE_GENERATIVE_AI_API_KEY?.trim() || null;
 }
 
-function resolveGithubToken(userSettings: UserSettings | null) {
-  return userSettings?.githubToken?.trim() || process.env.GITHUB_TOKEN?.trim() || null;
+function githubTokenFromEnv() {
+  return process.env.GITHUB_TOKEN?.trim() || null;
 }
 
-function resolveSlackWebhookUrl(userSettings: UserSettings | null) {
-  return userSettings?.slackWebhookUrl?.trim() || process.env.SLACK_WEBHOOK_URL?.trim() || null;
+function slackWebhookFromEnv() {
+  return process.env.SLACK_WEBHOOK_URL?.trim() || null;
 }
 
 function resolveModelId() {
@@ -33,26 +31,23 @@ function resolveModelId() {
 }
 
 export async function runChatAgent({ userId, messages }: ChatAgentInput) {
-  const [tasks, userSettings] = await Promise.all([
-    db.task.findMany({
-      where: { userId },
-      orderBy: { updatedAt: "desc" },
-      take: 40,
-    }),
-    db.userSettings.findUnique({ where: { userId } }),
-  ]);
+  const tasks = await db.task.findMany({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+    take: 40,
+  });
 
-  const apiKey = resolveGoogleAiApiKey(userSettings?.googleGenerativeAiApiKey);
+  const apiKey = googleAiKeyFromEnv();
   if (!apiKey) {
     throw new Error(
-      "Missing Google AI API key. Set GOOGLE_GENERATIVE_AI_API_KEY in .env.local or save a key in Settings (Gemini — free tier at aistudio.google.com).",
+      "Missing Google AI API key. Set GOOGLE_GENERATIVE_AI_API_KEY in .env.local (Gemini — free tier at aistudio.google.com).",
     );
   }
 
   const google = createGoogleGenerativeAI({ apiKey });
   const modelId = resolveModelId();
-  const githubToken = resolveGithubToken(userSettings);
-  const slackWebhook = resolveSlackWebhookUrl(userSettings);
+  const githubToken = githubTokenFromEnv();
+  const slackWebhook = slackWebhookFromEnv();
 
   return streamText({
     model: google(modelId),
@@ -60,6 +55,7 @@ export async function runChatAgent({ userId, messages }: ChatAgentInput) {
 You can summarize work, plan tasks, and create tasks via the createTask tool when the user asks.
 You can list the user's open GitHub pull requests (where they are involved) via listMyOpenGithubPullRequests — use it when they ask about PRs, reviews, or GitHub work.
 You can send a short message to their Slack channel via notifySlack — use it when they explicitly want Slack notified (e.g. summary of PRs). Format messages clearly; use bullet lines if listing PRs.
+You can post open PRs with no submitted GitHub reviews to their Slack QA channel only via notifyUnreviewedPrsToSlackQa — not the same as notifySlack. All integrations use environment variables (GITHUB_TOKEN, SLACK_WEBHOOK_URL, SLACK_QA_WEBHOOK_URL, GITHUB_WATCH_REPOS).
 Current user id: ${userId}.
 GitHub token configured: ${githubToken ? "yes" : "no"}.
 Slack webhook configured: ${slackWebhook ? "yes" : "no"}.
@@ -87,7 +83,7 @@ Existing tasks (JSON): ${JSON.stringify(tasks)}`,
       }),
       listMyOpenGithubPullRequests: tool({
         description:
-          "List open GitHub pull requests involving this user (author, assignee, reviewer, etc.). Requires GitHub token in Settings or GITHUB_TOKEN env.",
+          "List open GitHub pull requests involving this user (author, assignee, reviewer, etc.). Requires GITHUB_TOKEN in environment.",
         inputSchema: z.object({
           limit: z.number().int().min(1).max(25).optional().default(10),
         }),
@@ -95,8 +91,7 @@ Existing tasks (JSON): ${JSON.stringify(tasks)}`,
           const token = githubToken;
           if (!token) {
             return {
-              error:
-                "No GitHub token. Add a Personal Access Token in Settings → Integrations or set GITHUB_TOKEN in .env.local (scope: repo, read:org if needed).",
+              error: "No GitHub token. Set GITHUB_TOKEN in .env.local (scope: repo, read:org if needed).",
             };
           }
           const loginResult = await fetchGitHubLogin(token);
@@ -124,8 +119,7 @@ Existing tasks (JSON): ${JSON.stringify(tasks)}`,
           const url = slackWebhook;
           if (!url) {
             return {
-              error:
-                "No Slack webhook. Add URL in Settings → Integrations or set SLACK_WEBHOOK_URL in .env.local (Incoming Webhook from api.slack.com).",
+              error: "No Slack webhook. Set SLACK_WEBHOOK_URL in .env.local (Incoming Webhook from api.slack.com).",
             };
           }
           const result = await postSlackIncomingWebhook(url, message);
@@ -133,6 +127,31 @@ Existing tasks (JSON): ${JSON.stringify(tasks)}`,
             return { error: result.error };
           }
           return { ok: true, note: "Message posted to Slack." };
+        },
+      }),
+      notifyUnreviewedPrsToSlackQa: tool({
+        description:
+          "Post open PRs (watched repos) that have zero submitted GitHub reviews to the Slack QA Incoming Webhook only. Requires GITHUB_TOKEN, SLACK_QA_WEBHOOK_URL, GITHUB_WATCH_REPOS in environment.",
+        inputSchema: z.object({
+          includeWhenEmpty: z
+            .boolean()
+            .optional()
+            .describe("If true, still post when there are no unreviewed PRs (default false)."),
+        }),
+        execute: async ({ includeWhenEmpty }) => {
+          const result = await runUnreviewedPrSlackQaNotification({
+            skipIfEmpty: !includeWhenEmpty,
+          });
+          if (!result.ok) {
+            return { error: result.error };
+          }
+          if ("skipped" in result && result.skipped) {
+            return { note: result.reason, postedToSlackQa: false };
+          }
+          if ("sent" in result && result.sent) {
+            return { postedToSlackQa: true, pullCount: result.pullCount };
+          }
+          return { error: "Unexpected notify result" };
         },
       }),
     },

@@ -3,10 +3,10 @@ import {
   AlertCircle,
   ArrowRight,
   CircleDot,
+  ClipboardList,
   MessageSquare,
-  Network,
   ListTodo,
-  Settings,
+  GitPullRequest,
 } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
@@ -48,28 +48,22 @@ export default async function DashboardHomePage() {
 
   const shortcuts = [
     {
-      href: "/tasks",
-      title: "Tasks",
-      description: "Kanban board — drag cards to update status.",
-      icon: ListTodo,
+      href: "/github",
+      title: "GitHub",
+      description: "Env status + gửi thử PR chưa review.",
+      icon: GitPullRequest,
     },
     {
-      href: "/ai-chat",
-      title: "AI Chat",
-      description: "Gemini via AI SDK with streaming and tools (e.g. create tasks).",
+      href: "/backlog",
+      title: "Backlog",
+      description: "Trích key PR (ABC-123) và link issue.",
+      icon: ClipboardList,
+    },
+    {
+      href: "/slack",
+      title: "Slack",
+      description: "Slack QA & PR alerts.",
       icon: MessageSquare,
-    },
-    {
-      href: "/workflows",
-      title: "Workflows",
-      description: "Visual flows — React Flow starter for automation.",
-      icon: Network,
-    },
-    {
-      href: "/settings",
-      title: "Settings",
-      description: "Account and preferences (growing).",
-      icon: Settings,
     },
   ] as const;
 
@@ -88,8 +82,8 @@ export default async function DashboardHomePage() {
           </p>
         </div>
         <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Your workspace for tasks, AI-assisted chat, and workflows. Use the sidebar to move between
-          sections.
+          Overview for tasks plus integration health. Use the sidebar to open GitHub, Backlog, and
+          Slack.
         </p>
       </header>
 
@@ -150,14 +144,14 @@ export default async function DashboardHomePage() {
           <Card size="sm" className="flex flex-col justify-between">
             <CardHeader className="pb-2">
               <CardTitle className="text-muted-foreground">Quick open</CardTitle>
-              <CardDescription>Jump to your board</CardDescription>
+              <CardDescription>Send PR QA alerts</CardDescription>
             </CardHeader>
             <CardContent className="pt-0">
               <Link
-                href="/tasks"
+                href="/slack"
                 className={cn(buttonVariants({ size: "sm" }), "inline-flex w-full justify-center gap-2")}
               >
-                Open tasks
+                Open Slack QA
                 <ArrowRight className="h-4 w-4" aria-hidden />
               </Link>
             </CardContent>

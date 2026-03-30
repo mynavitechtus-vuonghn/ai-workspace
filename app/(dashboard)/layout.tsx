@@ -9,10 +9,9 @@ import { cn } from "@/lib/utils";
 
 const navItems = [
   { href: "/", label: "Dashboard" },
-  { href: "/tasks", label: "Tasks" },
-  { href: "/ai-chat", label: "AI Chat" },
-  { href: "/workflows", label: "Workflows" },
-  { href: "/settings", label: "Settings" },
+  { href: "/github", label: "GitHub" },
+  { href: "/backlog", label: "Backlog" },
+  { href: "/slack", label: "Slack" },
 ];
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
