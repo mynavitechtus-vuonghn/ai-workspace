@@ -1,21 +1,26 @@
+import { convertToModelMessages, type UIMessage } from "ai";
 import { NextResponse } from "next/server";
-import type { ModelMessage } from "ai";
+import { getServerSession } from "next-auth/next";
+
 import { runChatAgent } from "@/lib/ai/agent";
+import { authOptions } from "@/lib/auth";
 
 export async function POST(request: Request) {
-  try {
-    const body = (await request.json()) as {
-      userId?: string;
-      messages?: ModelMessage[];
-    };
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
 
-    if (!body.userId || !body.messages) {
-      return NextResponse.json({ error: "Missing userId or messages" }, { status: 400 });
+  try {
+    const body = (await request.json()) as { messages?: UIMessage[] };
+    if (!body.messages?.length) {
+      return NextResponse.json({ error: "Missing messages" }, { status: 400 });
     }
 
-    const result = runChatAgent({
-      userId: body.userId,
-      messages: body.messages,
+    const modelMessages = await convertToModelMessages(body.messages);
+    const result = await runChatAgent({
+      userId: session.user.id,
+      messages: modelMessages,
     });
 
     return result.toUIMessageStreamResponse();

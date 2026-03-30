@@ -9,8 +9,25 @@
 | Mục tiêu | Cách project đáp ứng |
 |---|---|
 | FE → Full-stack | Tự làm toàn bộ từ UI đến DB, học App Router, Server Actions, SSR, streaming, auth, drag-drop |
-| Vận dụng AI | Tích hợp Claude làm AI agent thực sự — chat, tóm tắt email, tạo task từ cuộc họp |
-| SKILL + MCP + Sub-agent | Kết nối Gmail/Calendar qua MCP, build workflow automation, sub-agent chạy nền |
+| Vận dụng AI | **Vercel AI SDK** (`streamText`, `useChat`, …) + provider (mặc định **Anthropic** qua `@ai-sdk/anthropic`) — chat, tóm tắt email, tạo task |
+| SKILL + MCP + Sub-agent | MCP/HTTP lấy dữ liệu (Gmail, Calendar, …) → xử lý bằng AI SDK; BullMQ cho workflow/sub-agent nền |
+
+---
+
+## Vercel AI SDK — vai trò trong kiến trúc
+
+**Vercel AI SDK** (`ai`) là **lớp thống nhất** cho:
+
+| Thành phần | Vai trò |
+|------------|---------|
+| **Server** | `streamText` / `generateText` / tools — file `lib/ai/agent.ts` |
+| **Route Handler** | Trả streaming UI: `app/api/chat/route.ts` → `toUIMessageStreamResponse()` |
+| **Provider** | `@ai-sdk/anthropic`, hoặc sau này `@ai-sdk/google`, OpenAI-compatible, Groq, v.v. |
+| **Client (khi làm UI chat)** | `useChat` từ `@ai-sdk/react` (cùng ecosystem với `ai`) |
+
+**Model mặc định (code hiện tại):** `anthropic('claude-sonnet-4-20250514')` trong `runChatAgent`.
+
+**Lưu ý:** MCP (Gmail/Calendar) thường là **nguồn dữ liệu** hoặc **server riêng**; app Next.js gọi API của bạn → pipeline vẫn dùng **AI SDK** để sinh văn bản / tool calls, không thay thế nhau.
 
 ---
 
@@ -18,20 +35,20 @@
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│              Frontend Layer — NextJS 15 (App Router)     │
-│  Dashboard UI │ AI Chat Interface │ Workflow Builder │ Auth│
+│         Frontend Layer — Next.js 16 (App Router)         │
+│  Dashboard UI │ AI Chat (useChat) │ Workflow Builder │ Auth│
 └────────────────────────┬────────────────────────────────┘
                          │ API / Server Actions
 ┌────────────────────────▼────────────────────────────────┐
-│          Backend Layer — NextJS API Routes + Server Actions│
-│  AI Agent API │ MCP Integration │ Sub-agent Engine │ Webhooks│
-└──────────────┬────────────────────────────┬────────────┘
+│     Backend — Route Handlers + Server Actions              │
+│  /api/chat (Vercel AI SDK streaming) │ MCP adapters │ Jobs│
+└──────────────┬────────────────────────────┬───────────────┘
                │                            │
-┌──────────────▼──────────┐  ┌─────────────▼──────────────┐
-│       Data Layer         │  │   External Services (MCP)   │
-│  PostgreSQL (Prisma ORM) │  │  Gmail · Calendar · GitHub  │
-│  Redis Cache             │  │  Slack · Notion · Linear    │
-└─────────────────────────┘  └────────────────────────────┘
+┌──────────────▼──────────┐  ┌──────────────▼──────────────┐
+│       Data Layer         │  │   External (Gmail, Cal, …)   │
+│  PostgreSQL (Prisma)     │  │  + MCP / OAuth / webhooks    │
+│  Redis (cache / queue)   │  │                              │
+└─────────────────────────┘  └──────────────────────────────┘
 ```
 
 ---
@@ -39,319 +56,207 @@
 ## Tech Stack
 
 ### Frontend
-- **NextJS 15** — App Router, Server Components, Streaming
-- **React 19** — useOptimistic, useFormStatus
-- **Tailwind CSS v4** — utility-first styling
+
+- **Next.js 16** — App Router, Server Components, streaming routes
+- **React 19** — `useOptimistic`, `useFormStatus`
+- **Tailwind CSS v4** — utility-first
 - **shadcn/ui** — component library
-- **React Flow** — workflow builder drag-drop
-- **Zustand** — client state management
-- **TanStack Query** — server state, caching
-- **Framer Motion** — animations
+- **React Flow** — workflow builder
+- **Zustand** — client state
+- **TanStack Query** — server state
+- **Framer Motion** *(optional)* — animations
+
+### AI (Vercel AI SDK)
+
+- **`ai`** — core: `streamText`, `generateText`, `ModelMessage`, response helpers
+- **`@ai-sdk/anthropic`** — Claude provider (`anthropic('...')`)
+- **Có thể mở rộng** — `@ai-sdk/google`, `@openai/ai-sdk-provider`, v.v. (cùng pattern `streamText({ model: ... })`)
 
 ### Backend
-- **NextJS Route Handlers** — REST API endpoints
-- **NextJS Server Actions** — form mutations, DB writes
-- **Vercel AI SDK** — streaming AI responses (`streamText`, `useChat`)
-- **Anthropic Claude API** — AI agent core
-- **BullMQ** — job queue cho sub-agent chạy nền
-- **tRPC** *(optional)* — end-to-end type-safe API
+
+- **Route Handlers** — REST (`app/api/**/route.ts`)
+- **Server Actions** — mutations (`actions/*.ts`)
+- **BullMQ** — job queue (workers tách process)
+- **tRPC** *(optional)*
 
 ### Data
-- **PostgreSQL** — primary database
-- **Prisma ORM** — type-safe DB client, migrations
-- **Redis** — session, cache, job queue
-- **NextAuth.js** — authentication (OAuth Google, GitHub)
-- **Vercel Blob Storage** — file uploads
 
-### External Services (qua MCP)
-- Gmail MCP Server
-- Google Calendar MCP Server
-- GitHub API + MCP
-- Slack, Notion, Linear *(mở rộng)*
+- **PostgreSQL** + **Prisma**
+- **Redis** — cache / queue
+- **NextAuth.js** — OAuth (Google, GitHub) *(lộ trình)*
+- **Vercel Blob** *(optional)* — uploads
+
+### External / MCP
+
+- Gmail, Calendar, GitHub, Slack, Notion, Linear — qua MCP hoặc API trực tiếp; **tóm tắt / agent** luôn đi qua **Vercel AI SDK** trong app.
 
 ### Deploy
-- **Vercel** — hosting, edge functions, cron jobs
-- **Supabase** hoặc **Neon** — managed PostgreSQL
-- **Upstash** — managed Redis
+
+- **Vercel**, **Neon/Supabase**, **Upstash Redis**
 
 ---
 
 ## 4 Core Features & Lộ trình build
 
 ### Phase 1 — FE Core (Tuần 1–2)
-**Mục tiêu học:** React 19, App Router, routing, layout, auth, responsive design
 
-- [ ] Setup NextJS 15 + TypeScript + Tailwind + shadcn/ui
-- [ ] Authentication với NextAuth.js (Google OAuth)
+**Mục tiêu học:** React 19, App Router, auth, responsive
+
+- [ ] Next.js + TypeScript + Tailwind + shadcn/ui
+- [ ] NextAuth (Google OAuth)
 - [ ] Dashboard layout (sidebar, header, breadcrumb)
-- [ ] Kanban board với drag-drop (dnd-kit hoặc React Flow)
-- [ ] Task CRUD — create, edit, delete, status update
+- [ ] Kanban (dnd-kit hoặc React Flow)
+- [ ] Task CRUD
 - [ ] Dark mode toggle
 
 ### Phase 2 — Backend & Database (Tuần 3–4)
-**Mục tiêu học:** API Routes, Server Actions, DB design, validation
 
-- [ ] PostgreSQL setup + Prisma schema design
-- [ ] Server Actions cho Task, Project, User
-- [ ] API Routes (REST) cho external integrations
-- [ ] Redis session + caching layer
-- [ ] Zod validation schemas
-- [ ] Error handling & middleware
+- [ ] PostgreSQL + Prisma
+- [ ] Server Actions (Task, User, …)
+- [ ] API Routes cho tích hợp
+- [ ] Redis + Zod + error handling
 
-**DB Schema cơ bản:**
-```prisma
-model User {
-  id        String    @id @default(cuid())
-  email     String    @unique
-  name      String?
-  tasks     Task[]
-  workflows Workflow[]
-  createdAt DateTime  @default(now())
-}
-
-model Task {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  status      Status   @default(TODO)
-  priority    Priority @default(MEDIUM)
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  dueDate     DateTime?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-}
-
-model Workflow {
-  id       String  @id @default(cuid())
-  name     String
-  nodes    Json
-  edges    Json
-  isActive Boolean @default(false)
-  userId   String
-  user     User    @relation(fields: [userId], references: [id])
-}
-
-enum Status   { TODO IN_PROGRESS REVIEW DONE }
-enum Priority { LOW MEDIUM HIGH URGENT }
-```
+**DB schema cơ bản:** (giữ như `prisma/schema.prisma` — User, Task, Workflow, enums Status / Priority)
 
 ### Phase 3 — AI Chat & Agent (Tuần 5–6)
-**Mục tiêu học:** Anthropic SDK, Vercel AI SDK, streaming, tool calling
 
-- [ ] AI Chat interface với streaming (Vercel AI SDK `useChat`)
-- [ ] Context-aware AI (biết task, project của user)
-- [ ] Tool calling: AI có thể tạo task, update status, tìm kiếm
-- [ ] AI tóm tắt task hàng ngày
-- [ ] Prompt templates (daily standup, review, planning)
+**Mục tiêu học:** **Vercel AI SDK** end-to-end (server stream + client chat)
 
-**Ví dụ tool calling:**
+- [ ] UI chat dùng **`useChat`** (default API `/api/chat`)
+- [ ] Context-aware (inject tasks user vào `system` hoặc messages)
+- [ ] Tool calling — `streamText({ tools: { ... } })` + execute DB (cần khớp API `tool()` của `ai` đúng version)
+- [ ] Prompt templates / daily standup
+
+**Luồng hiện có (reference):**
+
+- Server: `lib/ai/agent.ts` — `streamText({ model: anthropic(...), system, messages })`
+- API: `app/api/chat/route.ts` — `POST` body `{ userId, messages }` → `toUIMessageStreamResponse()`
+
+**Ví dụ tool calling (mẫu — kiểm tra `ai` package version khi chạy):**
+
 ```typescript
-import { anthropic } from '@ai-sdk/anthropic';
-import { streamText, tool } from 'ai';
-import { z } from 'zod';
+import { anthropic } from "@ai-sdk/anthropic";
+import { streamText, tool } from "ai";
+import { z } from "zod";
 
 const result = streamText({
-  model: anthropic('claude-sonnet-4-20250514'),
-  system: `Bạn là AI assistant của developer.
-           Tasks hiện tại: ${JSON.stringify(userTasks)}`,
+  model: anthropic("claude-sonnet-4-20250514"),
+  system: `Bạn là AI assistant. Tasks: ${JSON.stringify(userTasks)}`,
   messages,
   tools: {
     createTask: tool({
-      description: 'Tạo task mới',
-      parameters: z.object({
+      description: "Tạo task mới",
+      inputSchema: z.object({
         title: z.string(),
-        priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']),
+        priority: z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"]),
         dueDate: z.string().optional(),
       }),
       execute: async ({ title, priority, dueDate }) => {
-        return await db.task.create({ data: { title, priority, dueDate, userId } });
+        return db.task.create({
+          data: { title, priority, dueDate: dueDate ? new Date(dueDate) : undefined, userId },
+        });
       },
     }),
   },
 });
 ```
 
-### Phase 4 — MCP + Workflow Automation (Tuần 7–8)
-**Mục tiêu học:** MCP integration, sub-agent, job queue, workflow builder
+*(Nếu build báo lỗi `tool`/`inputSchema`, đối chiếu [AI SDK docs](https://sdk.vercel.ai/docs) cho đúng version `ai` đang cài.)*
 
-- [ ] Kết nối Gmail MCP — đọc email, tóm tắt, tạo task từ email
-- [ ] Kết nối Google Calendar MCP — xem lịch, block time tự động
-- [ ] Workflow Builder UI (drag-drop nodes với React Flow)
-- [ ] Sub-agent engine với BullMQ — chạy workflow nền
-- [ ] Cron job: "Morning briefing" chạy lúc 8h sáng
-- [ ] Notification system (in-app + email)
+### Phase 4 — MCP + Workflow (Tuần 7–8)
 
-**Ví dụ workflow automation:**
-```
-Trigger: Mỗi sáng 8:00
-  → Sub-agent 1: Tóm tắt email hôm qua (Gmail MCP)
-  → Sub-agent 2: Lấy lịch họp hôm nay (Calendar MCP)
-  → Sub-agent 3: Review task quá hạn (DB query)
-  ↓ (song song, đợi cả 3 xong)
-  → Agent tổng hợp: Tạo "Daily Briefing" card trên dashboard
-  → Tạo task TODO list cho ngày hôm nay
-  → Gửi summary qua email
-```
+- [ ] Gmail — đọc / tóm tắt / tạo task (dữ liệu Gmail → pipeline **AI SDK**)
+- [ ] Google Calendar
+- [ ] Workflow Builder (React Flow)
+- [ ] BullMQ sub-agent + cron “Morning briefing”
+- [ ] Notifications
 
 ---
 
 ## SKILL System
 
-Tạo custom AI skills — các prompt template có thể tái sử dụng:
+Custom skills — prompt template có thể tái sử dụng (xem `lib/ai/skills.ts`):
 
 ```typescript
-// Ví dụ skill: Phân tích PR
 const skills = {
   analyzePR: {
-    name: 'Phân tích Pull Request',
-    description: 'Review code quality, suggest improvements',
-    prompt: `Bạn là senior developer. Phân tích PR sau và đưa ra:
-             1. Potential bugs
-             2. Performance issues
-             3. Code style suggestions
-             4. Security concerns`,
-    tools: ['github_get_pr', 'github_get_diff'],
+    name: "Phân tích Pull Request",
+    description: "Review code quality, suggest improvements",
+    prompt: `Bạn là senior developer. Phân tích PR...`,
+    tools: ["github_get_pr", "github_get_diff"],
   },
-  estimateTask: {
-    name: 'Estimate Task',
-    description: 'Ước tính thời gian hoàn thành task',
-    prompt: `Dựa trên lịch sử task của user, estimate thời gian cho task mới`,
-    tools: ['get_task_history', 'create_task'],
-  },
-  dailyStandup: {
-    name: 'Daily Standup',
-    description: 'Tóm tắt work hôm qua, plan hôm nay',
-    prompt: `Generate standup report: Yesterday / Today / Blockers`,
-    tools: ['get_completed_tasks', 'get_today_tasks', 'get_calendar'],
-  },
+  // ...
 };
 ```
 
+Skills được gọi từ logic agent của bạn (sau khi đã có `streamText` / orchestration).
+
 ---
 
-## Folder Structure
+## Folder Structure (đã có / lộ trình)
 
 ```
 ai-dev-workspace/
 ├── app/
-│   ├── (auth)/
-│   │   ├── login/page.tsx
-│   │   └── register/page.tsx
-│   ├── (dashboard)/
-│   │   ├── layout.tsx
-│   │   ├── page.tsx                 # Dashboard home
-│   │   ├── tasks/page.tsx           # Kanban board
-│   │   ├── ai-chat/page.tsx         # AI Chat interface
-│   │   ├── workflows/page.tsx       # Workflow builder
-│   │   └── settings/page.tsx
+│   ├── (auth)/login|register
+│   ├── (dashboard)/layout.tsx, page.tsx, tasks, ai-chat, workflows
 │   └── api/
-│       ├── chat/route.ts            # AI streaming endpoint
-│       ├── tasks/route.ts
-│       ├── workflows/route.ts
-│       ├── mcp/
-│       │   ├── gmail/route.ts
-│       │   └── calendar/route.ts
-│       └── webhooks/route.ts
-├── components/
-│   ├── ui/                          # shadcn components
-│   ├── dashboard/
-│   ├── kanban/
-│   ├── ai-chat/
-│   └── workflow-builder/
+│       ├── chat/route.ts          # Vercel AI SDK streaming
+│       ├── tasks|workflows/
+│       └── mcp/gmail|calendar|webhooks
+├── components/ui/                 # shadcn
 ├── lib/
-│   ├── db.ts                        # Prisma client
-│   ├── redis.ts
-│   ├── ai/
-│   │   ├── agent.ts                 # Claude agent setup
-│   │   ├── tools.ts                 # Tool definitions
-│   │   ├── skills.ts                # Custom skills
-│   │   └── sub-agents.ts            # Sub-agent orchestration
-│   └── mcp/
-│       ├── gmail.ts
-│       └── calendar.ts
-├── actions/                         # Server Actions
-│   ├── task.ts
-│   ├── workflow.ts
-│   └── user.ts
+│   ├── db.ts, redis.ts
+│   ├── ai/agent.ts, tools.ts, skills.ts, sub-agents.ts
+│   └── button-variants.ts
+├── actions/task.ts
 ├── prisma/
-│   ├── schema.prisma
-│   └── migrations/
-└── workers/                         # BullMQ workers
-    ├── workflow-worker.ts
-    └── notification-worker.ts
+├── workers/
+└── context.md
 ```
 
 ---
 
-## Những gì bạn sẽ học được
+## Những gì bạn học được
 
-### Frontend Skills
-- App Router, Layouts, Loading/Error boundaries
-- Server Components vs Client Components
-- Streaming UI với Suspense
-- Drag-and-drop với dnd-kit / React Flow
-- Optimistic updates với `useOptimistic`
-- Form handling với Server Actions
-- Authentication flows (OAuth, sessions)
+### AI (trọng tâm: Vercel AI SDK)
 
-### Backend Skills
-- API Route design (REST)
-- Server Actions patterns
-- Database design, migrations, relations
-- Caching strategies (Redis)
-- Job queue (BullMQ) cho background tasks
-- Webhook handling
-- Middleware, rate limiting
-
-### AI/Automation Skills
-- Anthropic Claude SDK (messages, streaming, tool use)
-- Vercel AI SDK (`streamText`, `generateText`, `useChat`)
-- Tool calling & function calling patterns
-- MCP (Model Context Protocol) integration
-- Sub-agent orchestration (parallel, sequential, conditional)
-- Prompt engineering cho production
+- **`streamText` / `generateText`** — server
+- **`useChat`** — client streaming tới Route Handler
+- **Providers** — `@ai-sdk/anthropic` và các provider khác cùng API
+- **Tool calling** — gắn với Prisma / Server Actions
+- MCP — tích hợp làm **data plane**; AI plane = AI SDK
 
 ---
 
 ## Getting Started
 
 ```bash
-# 1. Clone / init project
-npx create-next-app@latest ai-dev-workspace --typescript --tailwind --app
-
-# 2. Install core dependencies
-npm install @ai-sdk/anthropic ai @prisma/client prisma
-npm install next-auth @auth/prisma-adapter
-npm install @tanstack/react-query zustand zod
-npm install shadcn/ui
-
-# 3. Install workflow + queue
-npm install reactflow dnd-kit bullmq ioredis
-
-# 4. Setup Prisma
-npx prisma init
-npx prisma migrate dev --name init
-
-# 5. Environment variables
+cd ai-dev-workspace
+npm install
 cp .env.example .env.local
-# ANTHROPIC_API_KEY=
-# DATABASE_URL=
-# REDIS_URL=
-# NEXTAUTH_SECRET=
-# GOOGLE_CLIENT_ID=
-# GOOGLE_CLIENT_SECRET=
+# Bắt buộc cho AI chat: ANTHROPIC_API_KEY=
+# DB: DATABASE_URL= | Redis: REDIS_URL=
+
+npx prisma generate
+npx prisma migrate dev --name init   # khi đã có Postgres
+
+npm run dev
+# Nếu lỗi resolve tailwindcss: npm run dev:webpack
 ```
+
+**Packages AI chính (đã có trong project):** `ai`, `@ai-sdk/anthropic`.
 
 ---
 
 ## Tài nguyên tham khảo
 
-- [NextJS 15 Docs](https://nextjs.org/docs)
-- [Vercel AI SDK Docs](https://sdk.vercel.ai)
-- [Anthropic Claude API](https://docs.anthropic.com)
-- [Prisma Docs](https://www.prisma.io/docs)
-- [React Flow Docs](https://reactflow.dev)
-- [BullMQ Docs](https://docs.bullmq.io)
+- [Next.js Docs](https://nextjs.org/docs)
+- **[Vercel AI SDK](https://sdk.vercel.ai)** — `streamText`, `useChat`, providers
+- [AI SDK Providers](https://sdk.vercel.ai/providers) — Anthropic, Google, OpenAI, Groq, …
+- [Anthropic API](https://docs.anthropic.com)
+- [Prisma](https://www.prisma.io/docs)
+- [React Flow](https://reactflow.dev)
+- [BullMQ](https://docs.bullmq.io)
 - [shadcn/ui](https://ui.shadcn.com)
-- [MCP Documentation](https://modelcontextprotocol.io)
+- [MCP](https://modelcontextprotocol.io)

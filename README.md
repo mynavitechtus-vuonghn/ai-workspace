@@ -10,6 +10,7 @@ Starter implementation for your Next.js full-stack productivity platform.
 - AI tool-calling starter (`lib/ai/tools.ts`)
 - Redis + BullMQ queue starter (`lib/redis.ts`, `lib/ai/sub-agents.ts`)
 - Task server actions (`actions/task.ts`)
+- [shadcn/ui](https://ui.shadcn.com) (Tailwind v4, `components/ui/*`). Add more components: `npx shadcn@latest add <name>`. For links styled as buttons in **Server Components**, import `buttonVariants` from `@/lib/button-variants` (not from `components/ui/button`, which is a client module).
 
 ## Quick start
 
@@ -42,6 +43,14 @@ npx prisma migrate dev --name init
 ```bash
 npm run dev
 ```
+
+### Dev: `Can't resolve 'tailwindcss'` (Turbopack)
+
+This project pins CSS packages in `next.config.ts` under `turbopack.resolveAlias`. If the error persists:
+
+1. Run from **`ai-dev-workspace`** only (not the parent `trainning` folder).
+2. Try webpack dev instead: `npm run dev:webpack`.
+3. Check you do not have an accidental **`package.json` in your home directory** (`~/package.json`). Next’s resolver may use it and break module resolution (your log showed `/Users/.../package.json`).
 
 ## Next recommended steps
 
