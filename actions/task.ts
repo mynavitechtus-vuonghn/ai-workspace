@@ -50,7 +50,6 @@ export async function createTaskAction(input: z.infer<typeof createTaskInput>) {
       dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
     },
   });
-  revalidatePath("/tasks");
   revalidatePath("/");
   return task;
 }
@@ -71,7 +70,6 @@ export async function updateTaskStatusAction(input: z.infer<typeof updateTaskSta
     where: { id: data.id },
     data: { status: data.status },
   });
-  revalidatePath("/tasks");
   revalidatePath("/");
   return task;
 }
@@ -85,6 +83,5 @@ export async function deleteTaskAction(id: string) {
   await db.task.deleteMany({
     where: { id, userId: session.user.id },
   });
-  revalidatePath("/tasks");
   revalidatePath("/");
 }

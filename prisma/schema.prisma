@@ -29,6 +29,12 @@ model UserSettings {
   googleGenerativeAiApiKey String? @db.Text
   githubToken              String? @db.Text
   slackWebhookUrl          String? @db.Text
+  /// Incoming Webhook for QA channel — PR review alerts go here only (not `slackWebhookUrl`).
+  slackQaWebhookUrl        String? @db.Text
+  /// Comma or newline separated `owner/repo` to scan for open PRs with no submitted reviews.
+  githubWatchRepos         String? @db.Text
+  backlogSpace             String?
+  backlogApiKey            String? @db.Text
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

@@ -23,7 +23,7 @@ export function ChatPanel() {
       <div className="min-h-[360px] space-y-4 rounded-xl border border-border bg-card p-4">
         {messages.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Try: list your open GitHub PRs, create tasks, or post a summary to Slack (configure tokens in Settings).
+            Try: list your open GitHub PRs, create tasks, or post a summary to Slack (set tokens in .env.local).
           </p>
         ) : null}
         {messages.map((m) => (
